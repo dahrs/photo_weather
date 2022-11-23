@@ -3,6 +3,7 @@
 
 import re
 import requests
+from datetime import date
 from datetime import datetime
 from bs4 import BeautifulSoup
 from geopy.geocoders import Nominatim
@@ -48,27 +49,98 @@ def datetime_to_seconds_timestamp(year: int = 2022, month: int = 11, day: int = 
 
 
 def get_daylight_dict(daytime_str: str) -> dict:
-    sunrise = re.findall(r"(?<=<strong>Sunrise:</strong>\s).+?(?=\s&nbsp;)", daytime_str)[0]
-    sunrise = [int(hhmm) for hhmm in sunrise.split(":")]
-    sunset = re.findall(r"(?<=<strong>Sunset:</strong>\s).+?(?=\s<br\s/>\s<strong>Sun\sTransit:)", daytime_str)[0]
-    sunset = [int(hhmm) for hhmm in sunset.split(":")]
-    daylight_d = {"sunrise": {"hours": sunrise[0], "minutes": sunrise[1], "timestamp": 0},  # TODO: get timestamp using funct above
-                  "sunset": {"hours": sunset[0], "minutes": sunset[1], "timestamp": 0},  # TODO: continue extracting data
-                  "meridian transit": {"hours": 0, "minutes": 0, "timestamp": 0},
-                  "civil dark": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                 "end": {"hours": 0, "minutes": 0, "timestamp": 0}},
-                  "nautical dark": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                    "end": {"hours": 0, "minutes": 0, "timestamp": 0}},
-                  "astro dark": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                 "end": {"hours": 0, "minutes": 0, "timestamp": 0}},
-                  "morning golden hour": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                          "end": {"hours": 0, "minutes": 0, "timestamp": 0}},
-                  "morning blue hour": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                        "end": {"hours": 0, "minutes": 0, "timestamp": 0}},
-                  "evening golden hour": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                          "end": {"hours": 0, "minutes": 0, "timestamp": 0}},
-                  "evening blue hour": {"start": {"hours": 0, "minutes": 0, "timestamp": 0},
-                                        "end": {"hours": 0, "minutes": 0, "timestamp": 0}}}
+    sunrise_s = re.findall(r"(?<=Sun - Rise: ).+?(?=, Set)", daytime_str)[0]
+    sunrise = [int(hhmm) for hhmm in sunrise_s.split(":")]
+    sunset_s = re.findall(r"(?<=, Set: ).+?(?=, Transit:)", daytime_str)[0]
+    sunset = [int(hhmm) for hhmm in sunset_s.split(":")]
+    sun_meridian_s = re.findall(r"(?<=, Transit: ).+?(?=\.\s\sMoon)", daytime_str)[0]
+    sun_meridian = [int(hhmm) for hhmm in sun_meridian_s.split(":")]
+    moonrise_s = re.findall(r"(?<=Moon - Rise: ).+?(?=, Set)", daytime_str)[0]
+    moonrise = [int(hhmm) for hhmm in moonrise_s.split(":")]
+    moonset_s = re.findall(r"Moon - .+? Civil Dark:", daytime_str)[0]
+    moonset_s = re.findall(r"(?<=Set: ).+?(?=\. Civil Dark:)", moonset_s)[0]
+    moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
+    civil_dark_s = re.findall(r"(?<=Civil Dark: ).+?(?=\. Nautical Dark:)", daytime_str)[0]
+    civil_dark = [[int(hhmm) for hhmm in star_end.split(":")] for star_end in civil_dark_s.split(" - ")]
+    nautical_dark_s = re.findall(r"(?<=Nautical Dark: ).+?(?=\. Astro Dark:)", daytime_str)[0]
+    nautical_dark = [[int(hhmm) for hhmm in star_end.split(":")] for star_end in nautical_dark_s.split(" - ")]
+    astro_dark_s = re.findall(r"(?<=Astro Dark: ).+", daytime_str)[0]
+    astro_dark = [[int(hhmm) for hhmm in star_end.split(":")] for star_end in astro_dark_s.split(" - ")]
+    # get current date
+    yy, mm, dd = date.today().year, date.today().month, date.today().day
+    # populate dict
+    daylight_d = {"sunrise": {"hours": sunrise[0], "minutes": sunrise[1], "time": sunrise_s,
+                              "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, sunrise[0], sunrise[1])},
+                  "sunset": {"hours": sunset[0], "minutes": sunset[1], "time": sunset_s,
+                             "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, sunset[0], sunset[1])},
+                  "meridian transit": {"hours": sun_meridian[0], "minutes": sun_meridian[1], "time": sun_meridian_s,
+                                       "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                  sun_meridian[0], sun_meridian[1])},
+                  "moonrise": {"hours": moonrise[0], "minutes": moonrise[1], "time": moonrise_s,
+                               "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonrise[0], moonrise[1])},
+                  "moonset": {"hours": moonset[0], "minutes": moonset[1], "time": moonset_s,
+                              "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonset[0], moonset[1])},
+                  "civil dark": {"start": {"hours": civil_dark[0][0], "minutes": civil_dark[0][1],
+                                           "time": civil_dark_s.split(" - ")[0],
+                                           "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, civil_dark[0][0],
+                                                                                      civil_dark[0][1])},
+                                 "end": {"hours": civil_dark[1][0], "minutes": civil_dark[1][1],
+                                         "time": civil_dark_s.split(" - ")[1],
+                                         "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, civil_dark[1][0],
+                                                                                    civil_dark[1][1])}},
+                  "nautical dark": {"start": {"hours": nautical_dark[0][0], "minutes": nautical_dark[0][1],
+                                              "time": nautical_dark_s.split(" - ")[0],
+                                              "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, nautical_dark[0][0],
+                                                                                         nautical_dark[0][1])},
+                                    "end": {"hours": nautical_dark[1][0], "minutes": nautical_dark[1][1],
+                                            "time": nautical_dark_s.split(" - ")[1],
+                                            "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, nautical_dark[1][0],
+                                                                                       nautical_dark[1][1])}},
+                  "astro dark": {"start": {"hours": astro_dark[0][0], "minutes": astro_dark[0][1],
+                                           "time": astro_dark_s.split(" - ")[0],
+                                           "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, astro_dark[0][0],
+                                                                                      astro_dark[0][1])},
+                                 "end": {"hours": astro_dark[1][0], "minutes": astro_dark[1][0],
+                                         "time": astro_dark_s.split(" - ")[1],
+                                         "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, astro_dark[1][0],
+                                                                                    astro_dark[1][1])}},
+                  "morning golden hour": {"start": {"hours": civil_dark[1][0], "minutes": civil_dark[1][1],
+                                                    "time": civil_dark_s.split(" - ")[1],
+                                                    "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                               civil_dark[1][0],
+                                                                                               civil_dark[1][1])},
+                                          "end": {"hours": sunrise[0], "minutes": sunrise[1],
+                                                  "time": sunrise_s,
+                                                  "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                             sunrise[0], sunrise[1])}},
+                  "morning blue hour": {"start": {"hours": nautical_dark[1][0], "minutes": nautical_dark[1][1],
+                                                  "time": nautical_dark_s.split(" - ")[1],
+                                                  "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                             nautical_dark[1][0],
+                                                                                             nautical_dark[1][1])},
+                                        "end": {"hours": civil_dark[1][0], "minutes": civil_dark[1][1],
+                                                "time": civil_dark_s.split(" - ")[1],
+                                                "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, civil_dark[1][0],
+                                                                                           civil_dark[1][1])}},
+                  "evening golden hour": {"start": {"hours": sunset[0], "minutes": sunset[1],
+                                                    "time": sunset_s,
+                                                    "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, sunset[0],
+                                                                                               sunset[1])},
+                                          "end": {"hours": civil_dark[0][0], "minutes": civil_dark[0][0],
+                                                  "time": civil_dark_s.split(" - ")[0],
+                                                  "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                             civil_dark[0][0],
+                                                                                             civil_dark[0][1])}},
+                  "evening blue hour": {"start": {"hours": civil_dark[0][0], "minutes": civil_dark[0][1],
+                                                  "time": civil_dark_s.split(" - ")[0],
+                                                  "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                             civil_dark[0][0],
+                                                                                             civil_dark[0][1])},
+                                        "end": {"hours": nautical_dark[0][0], "minutes": nautical_dark[0][1],
+                                                "time": nautical_dark_s.split(" - ")[0],
+                                                "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
+                                                                                           nautical_dark[0][0],
+                                                                                           nautical_dark[0][1])}}}
     return daylight_d
 
 
@@ -88,15 +160,23 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> dict
         w_content = clear_outside.text
         clearout_soup = BeautifulSoup(w_content, "html.parser")
         # get general data
-        # TODO: get day, month, year
         # TODO: get lunar phase, lunar rise, lunar set, lunar meridian
+        moon_data = clearout_soup.find(class_="fc_moon").get("data-content")
+        moon_altitude = re.findall(r"(?<=<strong>Altitude:</strong> ).+?(?= <br /> <strong>Distance:)", moon_data)[0]
+        moon_dist_km = re.findall(r"(?<=<strong>Distance:</strong> ).+?(?= miles <br />)", moon_data)[0]
+        moon_dist_km = int(moon_dist_km.replace(",", "")) * 1.609344
+        moon_phase = clearout_soup.find(class_="fc_moon_phase").text
+        moon_percentage = clearout_soup.find(class_="fc_moon_percentage").text
+        moonrise = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[1]
+        moonset = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[-1]
+        # TODO: put moon data in dict
         # get the first row: hours, general visibility and sun intensity
         hour_row_and_daylight_row = clearout_soup.find(class_="fc_hours fc_hour_ratings")
         hours_and_visibility = [cell.text.split(" ") for cell in hour_row_and_daylight_row.find_all("li")]
         hours = [cc[1] for cc in hours_and_visibility]
         gral_visib = [cc[2] for cc in hours_and_visibility]
         daylight_s = hour_row_and_daylight_row.find(class_="fc_daylight")
-        daylight_d = get_daylight_dict(daylight_s)
+        daylight_d = get_daylight_dict(daylight_s.text)
         print(1111111, daylight_d)
         # TODO: get rest of row data, all rows should be of the same size as hours
 
