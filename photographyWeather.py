@@ -48,6 +48,30 @@ def datetime_to_seconds_timestamp(year: int = 2022, month: int = 11, day: int = 
     return dt.timestamp()
 
 
+def get_nightlight_dict(nighttime_str: str, clearout_soup: BeautifulSoup) -> dict:
+    moon_altitude = re.findall(r"(?<=<strong>Altitude:</strong> ).+?(?= <br /> <strong>Distance:)", nighttime_str)[0]
+    moon_dist_miles = re.findall(r"(?<=<strong>Distance:</strong> ).+?(?= miles <br />)", nighttime_str)[0]
+    moon_dist_miles = int(moon_dist_miles.replace(",", ""))
+    moon_dist_km = moon_dist_miles * 1.609344
+    moon_phase = clearout_soup.find(class_="fc_moon_phase").text
+    moon_percentage = clearout_soup.find(class_="fc_moon_percentage").text
+    moon_percentage = int(moon_percentage.replace("%", ""))
+    moonrise_s = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[1]
+    moonrise = [int(hhmm) for hhmm in moonrise_s.split(":")]
+    moonset_s = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[-1]
+    moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
+    # get current date
+    yy, mm, dd = date.today().year, date.today().month, date.today().day
+    nightlight_d = {"moonrise": {"hours": moonrise[0], "minutes": moonrise[1], "time": moonrise_s,
+                                 "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonrise[0], moonrise[1])},
+                    "moonset": {"hours": moonset[0], "minutes": moonset[1], "time": moonset_s,
+                                "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonset[0], moonset[1])},
+                    "moon altitude": {"degrees": float(moon_altitude.replace("°", "")), "string": moon_altitude},
+                    "moon distance": {"kilometers": moon_dist_km, "miles": moon_dist_miles},
+                    "moon phase": {"phase name": moon_phase, "illumination percentage": moon_percentage}}
+    return nightlight_d
+
+
 def get_daylight_dict(daytime_str: str) -> dict:
     sunrise_s = re.findall(r"(?<=Sun - Rise: ).+?(?=, Set)", daytime_str)[0]
     sunrise = [int(hhmm) for hhmm in sunrise_s.split(":")]
@@ -55,11 +79,11 @@ def get_daylight_dict(daytime_str: str) -> dict:
     sunset = [int(hhmm) for hhmm in sunset_s.split(":")]
     sun_meridian_s = re.findall(r"(?<=, Transit: ).+?(?=\.\s\sMoon)", daytime_str)[0]
     sun_meridian = [int(hhmm) for hhmm in sun_meridian_s.split(":")]
-    moonrise_s = re.findall(r"(?<=Moon - Rise: ).+?(?=, Set)", daytime_str)[0]
-    moonrise = [int(hhmm) for hhmm in moonrise_s.split(":")]
-    moonset_s = re.findall(r"Moon - .+? Civil Dark:", daytime_str)[0]
-    moonset_s = re.findall(r"(?<=Set: ).+?(?=\. Civil Dark:)", moonset_s)[0]
-    moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
+    # moonrise_s = re.findall(r"(?<=Moon - Rise: ).+?(?=, Set)", daytime_str)[0]
+    # moonrise = [int(hhmm) for hhmm in moonrise_s.split(":")]
+    # moonset_s = re.findall(r"Moon - .+? Civil Dark:", daytime_str)[0]
+    # moonset_s = re.findall(r"(?<=Set: ).+?(?=\. Civil Dark:)", moonset_s)[0]
+    # moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
     civil_dark_s = re.findall(r"(?<=Civil Dark: ).+?(?=\. Nautical Dark:)", daytime_str)[0]
     civil_dark = [[int(hhmm) for hhmm in star_end.split(":")] for star_end in civil_dark_s.split(" - ")]
     nautical_dark_s = re.findall(r"(?<=Nautical Dark: ).+?(?=\. Astro Dark:)", daytime_str)[0]
@@ -76,10 +100,10 @@ def get_daylight_dict(daytime_str: str) -> dict:
                   "meridian transit": {"hours": sun_meridian[0], "minutes": sun_meridian[1], "time": sun_meridian_s,
                                        "timestamp": datetime_to_seconds_timestamp(yy, mm, dd,
                                                                                   sun_meridian[0], sun_meridian[1])},
-                  "moonrise": {"hours": moonrise[0], "minutes": moonrise[1], "time": moonrise_s,
-                               "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonrise[0], moonrise[1])},
-                  "moonset": {"hours": moonset[0], "minutes": moonset[1], "time": moonset_s,
-                              "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonset[0], moonset[1])},
+                  # "moonrise": {"hours": moonrise[0], "minutes": moonrise[1], "time": moonrise_s,
+                  #              "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonrise[0], moonrise[1])},
+                  # "moonset": {"hours": moonset[0], "minutes": moonset[1], "time": moonset_s,
+                  #             "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, moonset[0], moonset[1])},
                   "civil dark": {"start": {"hours": civil_dark[0][0], "minutes": civil_dark[0][1],
                                            "time": civil_dark_s.split(" - ")[0],
                                            "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, civil_dark[0][0],
@@ -160,16 +184,8 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> dict
         w_content = clear_outside.text
         clearout_soup = BeautifulSoup(w_content, "html.parser")
         # get general data
-        # TODO: get lunar phase, lunar rise, lunar set, lunar meridian
         moon_data = clearout_soup.find(class_="fc_moon").get("data-content")
-        moon_altitude = re.findall(r"(?<=<strong>Altitude:</strong> ).+?(?= <br /> <strong>Distance:)", moon_data)[0]
-        moon_dist_km = re.findall(r"(?<=<strong>Distance:</strong> ).+?(?= miles <br />)", moon_data)[0]
-        moon_dist_km = int(moon_dist_km.replace(",", "")) * 1.609344
-        moon_phase = clearout_soup.find(class_="fc_moon_phase").text
-        moon_percentage = clearout_soup.find(class_="fc_moon_percentage").text
-        moonrise = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[1]
-        moonset = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[-1]
-        # TODO: put moon data in dict
+        nightlight_d = get_nightlight_dict(moon_data, clearout_soup)
         # get the first row: hours, general visibility and sun intensity
         hour_row_and_daylight_row = clearout_soup.find(class_="fc_hours fc_hour_ratings")
         hours_and_visibility = [cell.text.split(" ") for cell in hour_row_and_daylight_row.find_all("li")]
