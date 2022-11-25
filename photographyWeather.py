@@ -183,18 +183,51 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> dict
         w_json = clear_outside.json
         w_content = clear_outside.text
         clearout_soup = BeautifulSoup(w_content, "html.parser")
-        # get general data
+        # get general night data
         moon_data = clearout_soup.find(class_="fc_moon").get("data-content")
         nightlight_d = get_nightlight_dict(moon_data, clearout_soup)
         # get the first row: hours, general visibility and sun intensity
         hour_row_and_daylight_row = clearout_soup.find(class_="fc_hours fc_hour_ratings")
+        # get general day data
+        daylight_s = hour_row_and_daylight_row.find(class_="fc_daylight")
+        daylight_d = get_daylight_dict(daylight_s.text)
+        # get row data
         hours_and_visibility = [cell.text.split(" ") for cell in hour_row_and_daylight_row.find_all("li")]
         hours = [cc[1] for cc in hours_and_visibility]
         gral_visib = [cc[2] for cc in hours_and_visibility]
-        daylight_s = hour_row_and_daylight_row.find(class_="fc_daylight")
-        daylight_d = get_daylight_dict(daylight_s.text)
-        print(1111111, daylight_d)
+        # get first day table
+        current_day_table = clearout_soup.find(class_="fc_detail hidden-xs")
+        # get each row data
+        rows = current_day_table.find_all(class_="fc_detail_row")
+        # get cloud data
+        total_clouds = [int(cell.text) for cell in rows[0].find(class_="fc_hours").find_all("li")]
+        low_clouds = [int(cell.text) for cell in rows[1].find(class_="fc_hours").find_all("li")]
+        medium_clouds = [int(cell.text) for cell in rows[2].find(class_="fc_hours").find_all("li")]
+        high_clouds = [int(cell.text) for cell in rows[3].find(class_="fc_hours").find_all("li")]
+        # get experimental cloud data
+        seven_timer_cloud_cover = [int(cell.text) if re.findall(r"[0-9]", cell.text)
+                                   else None for cell in rows[4].find(class_="fc_hours").find_all("li")]
+        alternative_cloud_cover = [int(cell.text) if re.findall(r"[0-9]", cell.text)
+                                   else None for cell in rows[5].find(class_="fc_hours").find_all("li")]
+        seven_timer_seeing = [int(cell.text) if re.findall(r"[0-9]", cell.text)
+                              else None for cell in rows[6].find(class_="fc_hours").find_all("li")]
+        seven_timer_lifted_index = [int(cell.text) if re.findall(r"[0-9]", cell.text)
+                                    else None for cell in rows[7].find(class_="fc_hours").find_all("li")]
+        seven_timer_transparency = [int(cell.text) if re.findall(r"[0-9]", cell.text)
+                                    else None for cell in rows[8].find(class_="fc_hours").find_all("li")]
+        # get ISS passover time
+        iss_passover = [False if "fc_none" in str(cell) else True
+                        for cell in rows[9].find(class_="fc_hours").find_all("li")]
+        # get humidity data
+        visibility_mile = [float(cell.text) for cell in rows[10].find(class_="fc_hours").find_all("li")]
+        visibility_km = [visib * 1.609344 for visib in visibility_mile]
+        fog_percentage = [int(cell.text) for cell in rows[11].find(class_="fc_hours").find_all("li")]
+
         # TODO: get rest of row data, all rows should be of the same size as hours
+        print(2222222222, rows[9].find(class_="fc_detail_label").text, iss_passover)
+        print(333333333, len(high_clouds), len(seven_timer_cloud_cover))
+
+        print(1111111, daylight_d)
 
         ##### https://www.crummy.com/software/BeautifulSoup/bs4/doc/
         #####################################################################
