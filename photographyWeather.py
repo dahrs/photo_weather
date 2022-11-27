@@ -44,6 +44,9 @@ def reformat_lant_long(latitude: float, longitude: float) -> str:
 
 def datetime_to_seconds_timestamp(year: int = 2022, month: int = 11, day: int = 22,
                                   hour: int = 0, minute: int = 0, second: int = 0) -> float:
+    for time_unit in [year, month, day, hour, minute, second]:
+        if type(time_unit) not in [int, float]:
+            return None
     dt = datetime(year, month, day, hour, minute, second)
     return dt.timestamp()
 
@@ -59,7 +62,10 @@ def get_nightlight_dict(nighttime_str: str, clearout_soup: BeautifulSoup) -> dic
     moonrise_s = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[1]
     moonrise = [int(hhmm) for hhmm in moonrise_s.split(":")]
     moonset_s = clearout_soup.find(class_="fc_moon_riseset").text.split(" ")[-1]
-    moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
+    if moonset_s == "Set":
+        moonset = [None, None]
+    else:
+        moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
     # get current date
     yy, mm, dd = date.today().year, date.today().month, date.today().day
     nightlight_d = {"moonrise": {"hours": moonrise[0], "minutes": moonrise[1], "time": moonrise_s,
@@ -83,7 +89,10 @@ def get_daylight_dict(daytime_str: str) -> dict:
     # moonrise = [int(hhmm) for hhmm in moonrise_s.split(":")]
     # moonset_s = re.findall(r"Moon - .+? Civil Dark:", daytime_str)[0]
     # moonset_s = re.findall(r"(?<=Set: ).+?(?=\. Civil Dark:)", moonset_s)[0]
-    # moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
+    # if moonset_s == "No Set":
+    #     moonset = [None, None]
+    # else:
+    #     moonset = [int(hhmm) for hhmm in moonset_s.split(":")]
     civil_dark_s = re.findall(r"(?<=Civil Dark: ).+?(?=\. Nautical Dark:)", daytime_str)[0]
     civil_dark = [[int(hhmm) for hhmm in star_end.split(":")] for star_end in civil_dark_s.split(" - ")]
     nautical_dark_s = re.findall(r"(?<=Nautical Dark: ).+?(?=\. Astro Dark:)", daytime_str)[0]
@@ -168,14 +177,14 @@ def get_daylight_dict(daytime_str: str) -> dict:
     return daylight_d
 
 
-def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> dict:
+def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> tuple[dict, dict, dict]:
     """
     Gets the clear outside site weather predictions
     :param latitude: latitude float
     :param longitude: longitude float
     :return: dictionary with the forecast data
     """
-    fore_data = {}
+    forecast_hour_d = {}
     url = f"https://clearoutside.com/forecast/{reformat_lant_long(latitude, longitude)}?experimental=on"
     clear_outside = requests.get(url)
     w_status = clear_outside.status_code
@@ -204,7 +213,7 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> dict
         low_clouds = [int(cell.text) for cell in rows[1].find(class_="fc_hours").find_all("li")]
         medium_clouds = [int(cell.text) for cell in rows[2].find(class_="fc_hours").find_all("li")]
         high_clouds = [int(cell.text) for cell in rows[3].find(class_="fc_hours").find_all("li")]
-        # get experimental cloud data
+        # get experimental cloud data from 7timer! service
         seven_timer_cloud_cover = [int(cell.text) if re.findall(r"[0-9]", cell.text)
                                    else None for cell in rows[4].find(class_="fc_hours").find_all("li")]
         alternative_cloud_cover = [int(cell.text) if re.findall(r"[0-9]", cell.text)
@@ -222,17 +231,72 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> dict
         visibility_mile = [float(cell.text) for cell in rows[10].find(class_="fc_hours").find_all("li")]
         visibility_km = [visib * 1.609344 for visib in visibility_mile]
         fog_percentage = [int(cell.text) for cell in rows[11].find(class_="fc_hours").find_all("li")]
-
-        # TODO: get rest of row data, all rows should be of the same size as hours
-        print(2222222222, rows[9].find(class_="fc_detail_label").text, iss_passover)
-        print(333333333, len(high_clouds), len(seven_timer_cloud_cover))
-
-        print(1111111, daylight_d)
-
-        ##### https://www.crummy.com/software/BeautifulSoup/bs4/doc/
-        #####################################################################
-        # TODO: extract all data from the page
-    return fore_data
+        celsius_dew_point = [int(cell.text) for cell in rows[19].find(class_="fc_hours").find_all("li")]
+        relative_humidity_percent = [int(cell.text) for cell in rows[20].find(class_="fc_hours").find_all("li")]
+        # get precipitation type: 0 is none, 1 is drizzle, 2 is light rain, 3 is
+        precipitation_type = [0 if "None" in str(cell) else str(cell) for cell in
+                              rows[12].find(class_="fc_hours").find_all("li")]
+        precipitation_type = [1 if (type(cell) is str and "Very Light Rain" in cell) else cell
+                              for cell in precipitation_type]
+        precipitation_type = [2 if (type(cell) is str and "Light Rain" in cell) else cell
+                              for cell in precipitation_type]
+        # TODO: complete precipitation types
+        # get precipitation data
+        precipitation_proba = [int(cell.text) for cell in rows[13].find(class_="fc_hours").find_all("li")]
+        precipitation_amount_mm = [float(cell.text) for cell in rows[14].find(class_="fc_hours").find_all("li")]
+        # get wind data (direction, miles per hour and km per hour)
+        wind_direction = [re.findall(r'(?<=from the ).+?(?="><span>)', str(cell))
+                          for cell in rows[15].find(class_="fc_hours").find_all("li")]
+        wind_speed_mph = [int(cell.text) for cell in rows[15].find(class_="fc_hours").find_all("li")]
+        wind_speed_kph = [int(mph * 1.609344) for mph in wind_speed_mph]
+        # get frost
+        frost = [True if "Chance of Frost" in str(cell) else False
+                 for cell in rows[16].find(class_="fc_hours").find_all("li")]
+        # get temperature data
+        celsius_temp_real = [int(cell.text) for cell in rows[17].find(class_="fc_hours").find_all("li")]
+        celsius_temp_feel = [int(cell.text) for cell in rows[18].find(class_="fc_hours").find_all("li")]
+        # get other data
+        pressure_mb = [int(cell.text) for cell in rows[21].find(class_="fc_hours").find_all("li")]
+        ozone_du = [int(cell.text) for cell in rows[22].find(class_="fc_hours").find_all("li")]
+        for hh, gv, lc, mc, hc, tc, ac, sc, ss, sl, st, iss, vm, vk, fp, dp, rh, pp, pa, pt, wd, wm, wk, ff, tr, \
+            tf, pm, od in zip(hours, gral_visib, low_clouds, medium_clouds, high_clouds, total_clouds,
+                              alternative_cloud_cover, seven_timer_cloud_cover, seven_timer_seeing,
+                              seven_timer_lifted_index, seven_timer_transparency, iss_passover, visibility_mile,
+                              visibility_km, fog_percentage, celsius_dew_point, relative_humidity_percent,
+                              precipitation_proba, precipitation_amount_mm, precipitation_type, wind_direction,
+                              wind_speed_mph, wind_speed_kph, frost, celsius_temp_real, celsius_temp_feel, pressure_mb,
+                              ozone_du):
+            forecast_hour_d[hh] = {"general_visibility": gv,
+                                   "low_cloud_percent": lc,
+                                   "medium_cloud_percent": mc,
+                                   "high_cloud_percent": hc,
+                                   "total_cloud_percent": tc,
+                                   "alternative_cloud_percent": ac,
+                                   "7timer_cloud_percent": sc,
+                                   "7timer_seeing": ss,
+                                   "7timer_lifted_ind": sl,
+                                   "7timer_transparency": st,
+                                   "iss_passover": iss,
+                                   "visibility": {"miles": vm,
+                                                  "km": vk},
+                                   "fog_percent": fp,
+                                   "dew_point_celsius": dp,
+                                   "relative_humidity_percent": rh,
+                                   "precipitation": {"probability": pp,
+                                                     "amount_in_mm": pa,
+                                                     "type": pt},
+                                   "wind": {"direction": wd,
+                                            "miles_per_hour": wm,
+                                            "km_per_hour": wk},
+                                   "frost": ff,
+                                   "temperature": {"celsius": {"real": tr,
+                                                               "feel": tf}},
+                                   "pressure": {"millibar": pm},
+                                   "ozone": {"dobson unit": od},
+                                   }
+        print(1111111, hours_and_visibility)
+        return nightlight_d, daylight_d, forecast_hour_d
+    return {}, {}, {}
 
 
 def photo_conditions() -> dict:
@@ -257,7 +321,8 @@ def make_photo_weather_based_suggestions(location: str) -> None:
     else:
         lat_long = get_lat_and_long(location_list[0])
     # get predictions from clear outside
-    pred_dict = get_clearoutside_weather_forecast(lat_long[0], lat_long[1]) ############
+    night_dict, day_dict, pred_dict = get_clearoutside_weather_forecast(lat_long[0], lat_long[1])
+    # TODO: run predictions through conditions tresholds
     #########################################################################
     # TODO: use telegram or email to send message of recommendations
     return
