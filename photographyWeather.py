@@ -3,9 +3,11 @@
 
 import re
 import requests
+import argparse
 from datetime import date
 from datetime import datetime
 from bs4 import BeautifulSoup
+from collections import OrderedDict
 from geopy.geocoders import Nominatim
 
 
@@ -43,7 +45,7 @@ def reformat_lant_long(latitude: float, longitude: float) -> str:
 
 
 def datetime_to_seconds_timestamp(year: int = 2022, month: int = 11, day: int = 22,
-                                  hour: int = 0, minute: int = 0, second: int = 0) -> float:
+                                  hour: any = 0, minute: any = 0, second: any = 0) -> float | None:
     for time_unit in [year, month, day, hour, minute, second]:
         if type(time_unit) not in [int, float]:
             return None
@@ -177,6 +179,47 @@ def get_daylight_dict(daytime_str: str) -> dict:
     return daylight_d
 
 
+def get_iss_dict(iss_row: list) -> list:
+    # get current date
+    yy, mm, dd = date.today().year, date.today().month, date.today().day
+    iss_tmp = []
+    for cd in iss_row:
+        n_cd = cd
+        if cd:
+            start = re.findall(r'(?<=<strong>Start:</strong> ).+?(?= <br /><strong>Max:)',
+                               str(cd))[0].replace("&deg;", "°")
+            start = [int(re.findall(r'.+?(?= \()', start)[0].split(":")[0]),
+                     int(re.findall(r'.+?(?= \()', start)[0].split(":")[1]),
+                     int(re.findall(r'.+?(?= \()', start)[0].split(":")[2]),
+                     re.findall(r'.+?(?= \()', start)[0], re.findall(r'(?<=\().+?(?=\))', start)[0]]
+            max_ = re.findall(r'(?<=<strong>Max:</strong> ).+?(?= <br /><strong>End:)',
+                              str(cd))[0].replace("&deg;", "°")
+            max_ = [int(re.findall(r'.+?(?= \()', max_)[0].split(":")[0]),
+                    int(re.findall(r'.+?(?= \()', max_)[0].split(":")[1]),
+                    int(re.findall(r'.+?(?= \()', max_)[0].split(":")[2]),
+                    re.findall(r'.+?(?= \()', max_)[0], re.findall(r'(?<=\().+?(?=\))', max_)[0]]
+            end = re.findall(r'(?<=<strong>End:</strong> ).+?(?= <br /><strong>Magnitude:)',
+                             str(cd))[0].replace("&deg;", "°")
+            end = [int(re.findall(r'.+?(?= \()', end)[0].split(":")[0]),
+                   int(re.findall(r'.+?(?= \()', end)[0].split(":")[1]),
+                   int(re.findall(r'.+?(?= \()', end)[0].split(":")[2]),
+                   re.findall(r'.+?(?= \()', end)[0], re.findall(r'(?<=\().+?(?=\))', end)[0]]
+            magni = float(re.findall(r'(?<=<strong>Magnitude:</strong> ).+?(?=<br />)', str(cd))[0])
+            n_cd = {"start": {"hours": start[0], "minutes": start[1], "seconds": start[2],
+                              "time": start[3], "location": start[4],
+                              "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, start[0], start[1], start[2])},
+                    "max": {"hours": max_[0], "minutes": max_[1], "seconds": max_[2],
+                            "time": max_[3], "location": max_[4],
+                            "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, max_[0], max_[1], max_[2])},
+                    "end": {"hours": end[0], "minutes": end[1], "seconds": end[2],
+                            "time": end[3], "location": end[4],
+                            "timestamp": datetime_to_seconds_timestamp(yy, mm, dd, end[0], end[1], end[2])},
+                    "magnitude": magni}
+        iss_tmp.append(n_cd)
+    return iss_tmp
+
+
+
 def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> tuple[dict, dict, dict]:
     """
     Gets the clear outside site weather predictions
@@ -184,6 +227,7 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> tupl
     :param longitude: longitude float
     :return: dictionary with the forecast data
     """
+    # get site data
     forecast_hour_d = {}
     url = f"https://clearoutside.com/forecast/{reformat_lant_long(latitude, longitude)}?experimental=on"
     clear_outside = requests.get(url)
@@ -225,8 +269,9 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> tupl
         seven_timer_transparency = [int(cell.text) if re.findall(r"[0-9]", cell.text)
                                     else None for cell in rows[8].find(class_="fc_hours").find_all("li")]
         # get ISS passover time
-        iss_passover = [False if "fc_none" in str(cell) else True
+        iss_passover = [None if "fc_none" in str(cell) else cell.get("data-content")
                         for cell in rows[9].find(class_="fc_hours").find_all("li")]
+        iss_passover = get_iss_dict(iss_passover)
         # get humidity data
         visibility_mile = [float(cell.text) for cell in rows[10].find(class_="fc_hours").find_all("li")]
         visibility_km = [visib * 1.609344 for visib in visibility_mile]
@@ -245,7 +290,7 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> tupl
         precipitation_proba = [int(cell.text) for cell in rows[13].find(class_="fc_hours").find_all("li")]
         precipitation_amount_mm = [float(cell.text) for cell in rows[14].find(class_="fc_hours").find_all("li")]
         # get wind data (direction, miles per hour and km per hour)
-        wind_direction = [re.findall(r'(?<=from the ).+?(?="><span>)', str(cell))
+        wind_direction = [re.findall(r'(?<=from the ).+?(?="><span>)', str(cell))[0]
                           for cell in rows[15].find(class_="fc_hours").find_all("li")]
         wind_speed_mph = [int(cell.text) for cell in rows[15].find(class_="fc_hours").find_all("li")]
         wind_speed_kph = [int(mph * 1.609344) for mph in wind_speed_mph]
@@ -294,19 +339,41 @@ def get_clearoutside_weather_forecast(latitude: float, longitude: float) -> tupl
                                    "pressure": {"millibar": pm},
                                    "ozone": {"dobson unit": od},
                                    }
-        print(1111111, hours_and_visibility)
         return nightlight_d, daylight_d, forecast_hour_d
     return {}, {}, {}
 
 
-def photo_conditions() -> dict:
-    photo_cond = {
-        "day": {},  # TODO: fog and low clouds to photograph buildings of 100+ meters; post-rain
-        "night": {},  # TODO: clear visibility for astro photo, ISS passing and clear visibility
-        "golden_hour": {},  # TODO: high clouds only during sunset/sunrise
-        "blue_hour": {}
-    }
-    return photo_cond
+def photo_conditions(night_d: dict, day_d: dict, forecast_d: dict) -> OrderedDict:
+    recommendations = OrderedDict()
+    for hour in sorted(forecast_d.keys()):
+        h_forecast = forecast_d[hour]
+        recommendations[hour] = {}
+        # capture the ISS station when the solar wings reflect the sun's rays
+        if h_forecast["iss_passover"]:
+            m_iss = h_forecast["iss_passover"]["max"]
+            mm_iss = m_iss["hours"] + (m_iss["minutes"] / 60)
+            s_dark = day_d["astro dark"]["start"]["hours"] + (day_d["astro dark"]["start"]["minutes"] / 60)
+            e_dark = day_d["astro dark"]["end"]["hours"] + (day_d["astro dark"]["end"]["minutes"] / 60)
+            s_light = day_d["sunrise"]["hours"] + (day_d["sunrise"]["minutes"] / 60)
+            e_light = day_d["sunset"]["hours"] + (day_d["sunset"]["minutes"] / 60)
+            # check during sunrise
+            if h_forecast["general_visibility"] == "Good" and e_dark < mm_iss < s_light:
+                if "astro" not in recommendations[hour]:
+                    recommendations[hour]["astro"] = []
+                msg = f"{m_iss['time']} : Great conditions to see the ISS station at {m_iss['location']}."
+                recommendations[hour]["astro"].append(msg)
+            # check during sunset
+            elif h_forecast["general_visibility"] == "Good" and e_light < mm_iss < s_dark:
+                if "astro" not in recommendations[hour]:
+                    recommendations[hour]["astro"] = []
+                msg = f"Great conditions at {m_iss['time']} to see the ISS station in direction of {m_iss['location']}."
+                recommendations[hour]["astro"].append(msg)
+            # TODO: continue with the ideal conditions
+            # TODO: fog and low clouds to photograph buildings of 100+ meters; post-rain
+            # TODO: clear visibility for astro photo, ISS passing and clear visibility
+            # TODO: high clouds only during sunset/sunrise
+    print(111111, recommendations)
+    return recommendations
 
 
 def make_photo_weather_based_suggestions(location: str) -> None:
@@ -322,6 +389,7 @@ def make_photo_weather_based_suggestions(location: str) -> None:
         lat_long = get_lat_and_long(location_list[0])
     # get predictions from clear outside
     night_dict, day_dict, pred_dict = get_clearoutside_weather_forecast(lat_long[0], lat_long[1])
+    photo_conditions(night_dict, day_dict, pred_dict)
     # TODO: run predictions through conditions tresholds
     #########################################################################
     # TODO: use telegram or email to send message of recommendations
@@ -329,4 +397,22 @@ def make_photo_weather_based_suggestions(location: str) -> None:
 
 
 if __name__ == "__main__":
-    print(make_photo_weather_based_suggestions("Montreal, Quebec"))
+    parser = argparse.ArgumentParser(description="Message bot to get photo recommendations according to the weather")
+    parser.add_argument("-loc", "--location", type=str, default="Montreal, Quebec",
+                        help="Location where to get the forecast. Presented as: 'city, [province/region/state], country'.")
+    parser.add_argument("-rec", "--recurrence", type=str, default="daily",
+                        help="""Recurrence of time to send the messages. 
+                        Select amongst: emergency, daily, bi-daily, tri-daily, quadri-daily, hourly""")
+    parser.add_argument("-fields", "--photo_fields", type=str, default="all",
+                        help="""Fields of interest to receive recommendations. 
+                        Select amongst: all, astro, street, landscape, portrait, macro""")
+    parser.add_argument("-verb", "--verbosity", type=int, default=1,
+                        help="""Level of verbosity in the message. The higher, the more verbose: 
+                        0 - single word summary, 1 - table summary, 2 - parragraph explanation""")
+    args = parser.parse_args()
+
+    # TODO: add all argparse options to the function
+    make_photo_weather_based_suggestions(args.location)
+
+else:
+    make_photo_weather_based_suggestions("Montreal, Quebec")
